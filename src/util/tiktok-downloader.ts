@@ -5,32 +5,31 @@ interface AwemeData {
   aweme_list?: {
     video?: {
       play_addr?: {url_list?: string[]};
+      download_addr?: {url_list?: string[]};
     };
   }[];
 }
 
-interface TkCurlError {
-  tkCurlError: string;
-}
+const shareUrlRegex = /^https:\/\/www\.tiktok\.com\/t\/[0-9A-Za-z]+\/?$/;
 
 const tiktokUrlRegex =
-  /https:\/\/www.tiktok.com\/@[a-zA-Z]+?\/video\/([0-9]+)\?.*/;
+  /^https:\/\/www.tiktok.com\/@[a-zA-Z0-9_\.]+?\/video\/([0-9]+)\?.*$/;
+
+export const isShareUrl = (url: string) => shareUrlRegex.test(url);
 
 export const getPageUrlFromShareUrl = async (shareUrl: string) => {
-  let data;
-  try {
-    const response = await fetch(shareUrl);
-    if (response.url) {
-      response.url.match(tiktokUrlRegex);
-    }
-  } catch (error) {
-    console.log(error);
+  const response = await fetch(shareUrl);
+  const matches = response.url.match(tiktokUrlRegex);
+  if (matches !== null) {
+    return matches[1];
   }
+  throw {tkCurlError: "Can't retrieve video id"};
 };
 
 export const getMediaUrlFromPageUrl = async (
   id: string,
-): Promise<string | TkCurlError> => {
+  withWM?: boolean,
+): Promise<string> => {
   let data: AwemeData;
   try {
     const response = await fetch(
@@ -38,41 +37,48 @@ export const getMediaUrlFromPageUrl = async (
     );
     data = await response.json();
   } catch (error) {
-    console.log(error);
-    return {tkCurlError: 'Video data request failed'};
+    throw {tkCurlError: 'Video data request failed'};
   }
-  if (data?.aweme_list?.[0].video?.play_addr?.url_list?.[0] === undefined) {
-    return {
+
+  if (
+    !withWM &&
+    data?.aweme_list?.[0].video?.play_addr?.url_list?.[0] !== undefined
+  ) {
+    return data.aweme_list[0].video.play_addr.url_list[0];
+  } else if (
+    withWM &&
+    data?.aweme_list?.[0].video?.download_addr?.url_list?.[0] !== undefined
+  ) {
+    return data.aweme_list[0].video.download_addr.url_list[0];
+  } else {
+    throw {
       tkCurlError: 'Cant get media url from video data',
     };
   }
-  const mediaUrl = data.aweme_list[0].video.play_addr.url_list[0];
-  console.log(mediaUrl);
-  return mediaUrl;
 };
 
-export const saveVideoFromMediaUrl = (mediaUrl: string, fileName: string) => {
+export const saveVideoFromMediaUrl = async (
+  mediaUrl: string,
+  fileName: string,
+) => {
   const path = getDirectoryPath();
-  console.log(`${path}/${fileName}.mp4`);
-  RNFetchBlob.config({
-    path: `${path}/${fileName}.mp4`,
-    /* addAndroidDownloads: {
-      //useDownloadManager: true,
-      //notification: true,
-      mime: 'video/mp4',
-      //description: 'Video downloaded by Tiktok Curl.',
-      //mediaScannable: true,
-      //title: `${fileName} Download Success`,
-    }, */
-  })
-    .fetch('GET', mediaUrl)
-    .then((res) => {
-      // the temp file path
-      console.log('The file saved to ', res.path());
-    })
-    .catch((error) => {
-      console.log(error);
-    });
+  try {
+    const res = await RNFetchBlob.config({
+      path: `${path}/${fileName}.mp4`,
+      /* addAndroidDownloads: {
+        //useDownloadManager: true,
+        //notification: true,
+        mime: 'video/mp4',
+        //description: 'Video downloaded by Tiktok Curl.',
+        //mediaScannable: true,
+        //title: `${fileName} Download Success`,
+      }, */
+    }).fetch('GET', mediaUrl);
+    // the temp file path
+    console.log('The file saved to ', res.path());
+  } catch (error) {
+    throw {tkCurlError: 'Video information found but failed to save file'};
+  }
 };
 
 const getDirectoryPath = () => {
