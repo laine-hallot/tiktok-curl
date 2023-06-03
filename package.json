@@ -13,6 +13,7 @@
     "@react-native-clipboard/clipboard": "^1.11.2",
     "react": "18.2.0",
     "react-native": "0.71.8",
+    "react-native-fs": "^2.20.0",
     "tiktok-scraper": "^1.4.36"
   },
   "devDependencies": {

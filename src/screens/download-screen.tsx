@@ -1,33 +1,32 @@
-import {useCallback, useLayoutEffect, useState} from 'react';
+import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 
-import React from 'react';
-
+import Clipboard from '@react-native-clipboard/clipboard';
 import {
   ActivityIndicator,
-  Button,
-  NativeSyntheticEvent,
   SafeAreaView,
   ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   TextInput,
-  TextInputFocusEventData,
-  TouchableNativeFeedback,
-  useColorScheme,
   View,
+  useColorScheme,
 } from 'react-native';
 
-import Clipboard from '@react-native-clipboard/clipboard';
+import { colors } from '../styles/colors';
 
-import {colors} from '../styles/colors';
+import { DownloadProgress } from '../components/download-progress';
+import { WideButton } from '../components/wide-button';
+import { VideoInfo } from '../components/video-info';
 
+import type { ShortenedAwemeData } from '../tk-dl/types';
 import {
   getMediaUrlFromPageUrl,
   getPageUrlFromShareUrl,
   isShareUrl,
   saveVideoFromMediaUrl,
-} from '../util/tiktok-downloader';
+} from '../tk-dl/tiktok-downloader';
+import { ContainerCard } from '../components/container-card';
 
 export const DownloadScreen = (): JSX.Element => {
   const isDarkMode = useColorScheme() === 'dark';
@@ -42,6 +41,13 @@ export const DownloadScreen = (): JSX.Element => {
   const [isValidInputUrl, setIsValidInputUrl] = useState(true);
   const [showSuccessMsg, setShowSuccessMsg] = useState(false);
 
+  const [totalFileSize, setTotalFileSize] = useState<number>();
+  const [downloadProgress, setDownloadProgress] = useState<number>();
+
+  const [videoInfo, setVideoInfo] = useState<
+    ShortenedAwemeData & { videoId: string }
+  >();
+
   useLayoutEffect(() => {
     Clipboard.getString().then((clipText) => {
       if (isShareUrl(clipText)) {
@@ -53,6 +59,7 @@ export const DownloadScreen = (): JSX.Element => {
 
   const onChangeText = useCallback(
     (text: string) => {
+      setVideoInfo(undefined);
       setShowSuccessMsg(false);
       setInputUrl(text);
       if (!isValidInputUrl) {
@@ -79,28 +86,59 @@ export const DownloadScreen = (): JSX.Element => {
     validateText(inputUrl);
   }, [inputUrl, validateText]);
 
+  const getVideoMetaData = useCallback(() => {
+    setIsLoading(true);
+    getPageUrlFromShareUrl(inputUrl)
+      .then(async (videoId) => {
+        const { videoUrl, ...videoInfoData } = await getMediaUrlFromPageUrl(
+          videoId,
+        );
+        setVideoInfo({ videoId, videoUrl, ...videoInfoData });
+        setShowSuccessMsg(false);
+      })
+      .catch((error) => {
+        if (error.tkCurlError !== undefined) {
+          setErrorString(error.tkCurlError);
+        }
+      })
+      .finally(() => {
+        setIsLoading(false);
+      });
+  }, [inputUrl]);
+
   const makeDownloadRequest = useCallback(
     (withWM?: boolean) => {
-      setShowSuccessMsg(false);
-      setIsLoading(true);
-      setErrorString('');
-      getPageUrlFromShareUrl(inputUrl)
-        .then(async (videoId) => {
-          const data = await getMediaUrlFromPageUrl(videoId, withWM);
-          await saveVideoFromMediaUrl(data, videoId);
-          setShowSuccessMsg(true);
+      if (videoInfo) {
+        setShowSuccessMsg(false);
+        setIsLoading(true);
+        setErrorString('');
+        saveVideoFromMediaUrl(videoInfo.videoUrl, videoInfo.videoId, {
+          totalFileSizeTracker: setTotalFileSize,
+          progressBytesTracker: setDownloadProgress,
         })
-        .catch((error) => {
-          if (error.tkCurlError !== undefined) {
-            setErrorString(error.tkCurlError);
-          }
-        })
-        .finally(() => {
-          setIsLoading(false);
-        });
+          .then(() => {
+            setShowSuccessMsg(true);
+          })
+          .catch((error) => {
+            if (error.tkCurlError !== undefined) {
+              setErrorString(error.tkCurlError);
+            }
+          })
+          .finally(() => {
+            setIsLoading(false);
+            setTotalFileSize(undefined);
+            setDownloadProgress(undefined);
+          });
+      }
     },
-    [inputUrl, setErrorString],
+    [videoInfo],
   );
+
+  useMemo(() => {
+    if (inputUrl !== '' && isValidInputUrl) {
+      getVideoMetaData();
+    }
+  }, [getVideoMetaData, inputUrl, isValidInputUrl]);
 
   const handleDownloadPress = useCallback(() => {
     makeDownloadRequest();
@@ -129,7 +167,7 @@ export const DownloadScreen = (): JSX.Element => {
             </Text>
           </View>
         )}
-        <View style={styles.form}>
+        <ContainerCard extraStyles={styles.form}>
           <Text style={styles.labelText}>{'Download a Video'}</Text>
           <TextInput
             placeholder="https://video.share/url"
@@ -138,38 +176,34 @@ export const DownloadScreen = (): JSX.Element => {
             onBlur={handleBlur}
             value={inputUrl}
           />
-          <TouchableNativeFeedback
-            onPress={handleDownloadPress}
-            disabled={!isValidInputUrl || isLoading || inputUrl === ''}>
-            <View
-              style={[
-                styles.downloadButton,
-                !isValidInputUrl || isLoading || inputUrl === ''
-                  ? styles.downloadButtonDisabled
-                  : [],
-              ]}>
-              <Text style={styles.downloadButtonText}>{'Download'}</Text>
-            </View>
-          </TouchableNativeFeedback>
-          <TouchableNativeFeedback
-            onPress={handleDownloadWMPress}
-            disabled={!isValidInputUrl || isLoading || inputUrl === ''}>
-            <View
-              style={
-                !isValidInputUrl || isLoading || inputUrl === ''
-                  ? [
-                      styles.downloadButton,
-                      styles.downloadButtonWM,
-                      styles.downloadButtonWMDisabled,
-                    ]
-                  : [styles.downloadButton, styles.downloadButtonWM]
-              }>
-              <Text style={styles.downloadButtonText}>
-                {'Download With Watermark'}
-              </Text>
-            </View>
-          </TouchableNativeFeedback>
-        </View>
+          <VideoInfo
+            authorName={videoInfo?.authorName}
+            caption={videoInfo?.caption}
+            thumbnail={videoInfo?.thumbnail}
+          />
+          {totalFileSize !== undefined && (
+            <DownloadProgress
+              totalBytes={totalFileSize}
+              downloadedBytes={downloadProgress}
+            />
+          )}
+          {isValidInputUrl && inputUrl !== '' ? (
+            <>
+              <WideButton
+                handlePress={handleDownloadPress}
+                disabled={!isValidInputUrl || isLoading || inputUrl === ''}
+                text="Download"
+                type="primary"
+              />
+              <WideButton
+                handlePress={handleDownloadWMPress}
+                disabled={!isValidInputUrl || isLoading || inputUrl === ''}
+                text="Download With Watermark"
+                type="secondary"
+              />
+            </>
+          ) : null}
+        </ContainerCard>
         {showSuccessMsg && <Text style={styles.successText}>Success!</Text>}
         {isLoading && <ActivityIndicator size={64} color={colors.red} />}
       </ScrollView>
@@ -178,31 +212,6 @@ export const DownloadScreen = (): JSX.Element => {
 };
 
 const styles = StyleSheet.create({
-  downloadButton: {
-    borderRadius: 4,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    backgroundColor: colors.buttonPrimary,
-    textAlign: 'center',
-    alignItems: 'center',
-  },
-  downloadButtonDisabled: {
-    backgroundColor: colors.buttonPrimaryDisabled,
-  },
-  downloadButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.white,
-  },
-  downloadButtonTextDisabled: {
-    color: colors.lightGray,
-  },
-  downloadButtonWM: {
-    backgroundColor: colors.buttonSecondary,
-  },
-  downloadButtonWMDisabled: {
-    backgroundColor: colors.buttonSecondaryDisabled,
-  },
   errorContainer: {
     padding: 8,
   },
@@ -216,16 +225,7 @@ const styles = StyleSheet.create({
     fontWeight: '400',
   },
   form: {
-    backgroundColor: colors.primaryDivBackground,
     justifyContent: 'center',
-    padding: 24,
-    gap: 8,
-    borderRadius: 8,
-    elevation: 8,
-    shadowColor: colors.shadow,
-    shadowOffset: {width: 0, height: 2},
-    shadowOpacity: 1,
-    shadowRadius: 12,
   },
   labelText: {
     color: colors.regularText,
