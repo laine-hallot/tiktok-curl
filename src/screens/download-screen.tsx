@@ -21,8 +21,8 @@ import { VideoInfo } from '../components/video-info';
 
 import type { ShortenedAwemeData } from '../tk-dl/types';
 import {
-  getMediaUrlFromPageUrl,
-  getPageUrlFromShareUrl,
+  getMediaInfoFromVideoId,
+  getVideoIdFromShareUrl,
   isShareUrl,
   saveVideoFromMediaUrl,
 } from '../tk-dl/tiktok-downloader';
@@ -35,12 +35,17 @@ export const DownloadScreen = (): JSX.Element => {
     backgroundColor: colors.appBackground,
   };
 
+  /* 
+    All of these useState are a bit messy and probably overkill.
+    I could probably get rid of or combine a couple of these.
+  */
   const [errorString, setErrorString] = useState('');
   const [inputUrl, setInputUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isValidInputUrl, setIsValidInputUrl] = useState(true);
   const [showSuccessMsg, setShowSuccessMsg] = useState(false);
 
+  const [isDownloading, setIsDownloading] = useState(false);
   const [totalFileSize, setTotalFileSize] = useState<number>();
   const [downloadProgress, setDownloadProgress] = useState<number>();
 
@@ -57,18 +62,6 @@ export const DownloadScreen = (): JSX.Element => {
     });
   }, []);
 
-  const onChangeText = useCallback(
-    (text: string) => {
-      setVideoInfo(undefined);
-      setShowSuccessMsg(false);
-      setInputUrl(text);
-      if (!isValidInputUrl) {
-        validateText(text);
-      }
-    },
-    [setInputUrl],
-  );
-
   const validateText = useCallback(
     (text: string) => {
       if (text === '' || isShareUrl(text)) {
@@ -82,19 +75,31 @@ export const DownloadScreen = (): JSX.Element => {
     [setErrorString],
   );
 
+  const onChangeText = useCallback(
+    (text: string) => {
+      setVideoInfo(undefined);
+      setShowSuccessMsg(false);
+      setInputUrl(text);
+      if (!isValidInputUrl) {
+        validateText(text);
+      }
+    },
+    [isValidInputUrl, validateText],
+  );
+
   const handleBlur = useCallback(() => {
     validateText(inputUrl);
   }, [inputUrl, validateText]);
 
   const getVideoMetaData = useCallback(() => {
+    setVideoInfo(undefined);
     setIsLoading(true);
-    getPageUrlFromShareUrl(inputUrl)
+    getVideoIdFromShareUrl(inputUrl)
       .then(async (videoId) => {
-        const { videoUrl, ...videoInfoData } = await getMediaUrlFromPageUrl(
+        const { videoUrl, ...videoInfoData } = await getMediaInfoFromVideoId(
           videoId,
         );
         setVideoInfo({ videoId, videoUrl, ...videoInfoData });
-        setShowSuccessMsg(false);
       })
       .catch((error) => {
         if (error.tkCurlError !== undefined) {
@@ -109,13 +114,25 @@ export const DownloadScreen = (): JSX.Element => {
   const makeDownloadRequest = useCallback(
     (withWM?: boolean) => {
       if (videoInfo) {
+        setIsDownloading(true);
         setShowSuccessMsg(false);
-        setIsLoading(true);
         setErrorString('');
-        saveVideoFromMediaUrl(videoInfo.videoUrl, videoInfo.videoId, {
-          totalFileSizeTracker: setTotalFileSize,
-          progressBytesTracker: setDownloadProgress,
-        })
+        saveVideoFromMediaUrl(
+          /* 
+          we can tell typescript to ignore the undefined case since this 
+          function would only get called if we have a url.
+          */
+          videoInfo[withWM ? 'wmVideoUrl' : 'videoUrl']!,
+          videoInfo.videoId,
+          {
+            totalFileSizeTracker: (contentLength) => {
+              setTotalFileSize(contentLength);
+            },
+            progressBytesTracker: (bytesWritten) => {
+              setDownloadProgress(bytesWritten);
+            },
+          },
+        )
           .then(() => {
             setShowSuccessMsg(true);
           })
@@ -125,7 +142,7 @@ export const DownloadScreen = (): JSX.Element => {
             }
           })
           .finally(() => {
-            setIsLoading(false);
+            setIsDownloading(false);
             setTotalFileSize(undefined);
             setDownloadProgress(undefined);
           });
@@ -176,18 +193,22 @@ export const DownloadScreen = (): JSX.Element => {
             onBlur={handleBlur}
             value={inputUrl}
           />
-          <VideoInfo
-            authorName={videoInfo?.authorName}
-            caption={videoInfo?.caption}
-            thumbnail={videoInfo?.thumbnail}
-          />
-          {totalFileSize !== undefined && (
+          {isValidInputUrl && inputUrl !== '' ? (
+            <VideoInfo
+              authorName={videoInfo?.authorName}
+              caption={videoInfo?.caption}
+              thumbnail={videoInfo?.thumbnail}
+              loading={isLoading}
+            />
+          ) : null}
+          {isDownloading && totalFileSize !== undefined ? (
             <DownloadProgress
               totalBytes={totalFileSize}
               downloadedBytes={downloadProgress}
             />
-          )}
-          {isValidInputUrl && inputUrl !== '' ? (
+          ) : null}
+          {videoInfo?.videoUrl !== undefined &&
+          videoInfo?.wmVideoUrl !== undefined ? (
             <>
               <WideButton
                 handlePress={handleDownloadPress}

@@ -1,4 +1,4 @@
-import type { FC } from 'react';
+import type { FC, PropsWithChildren } from 'react';
 
 import React from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
@@ -19,26 +19,52 @@ export const VideoInfo: FC<VideoInfoProps> = ({
 }) => {
   return (
     <View style={styles.videoInfoView}>
-      {loading ? (
+      <Ghost style={styles.thumbnail} loading={loading}>
         <Image source={{ uri: thumbnail }} style={styles.thumbnail} />
-      ) : (
-        <Ghost style={styles.thumbnail} />
-      )}
+      </Ghost>
       <View style={styles.textInfo}>
-        <Text style={styles.authorName}>{authorName}</Text>
-        <Text>{caption}</Text>
+        <Ghost
+          style={{
+            height: 18,
+            width: 156,
+          }}
+          loading={loading}>
+          <Text style={styles.authorName}>{authorName}</Text>
+        </Ghost>
+        <Ghost
+          style={{
+            height: 18,
+            width: 156,
+          }}
+          loading={loading}>
+          <Text ellipsizeMode={'tail'} numberOfLines={2}>
+            {caption}
+          </Text>
+        </Ghost>
       </View>
     </View>
   );
 };
 
-const Ghost = ({
-  style: { width: x, height: y },
-}: {
-  style: { width: number | string; height: number | string };
-}) => (
-  <View
-    style={{ width: x, height: y, backgroundColor: colors.lightGray }}></View>
+const Ghost: FC<
+  PropsWithChildren<{
+    style: { width: number | string; height: number | string };
+    loading?: boolean;
+  }>
+> = ({ children, loading, style: { width: x, height: y } }) => (
+  <>
+    {loading ? (
+      <View
+        style={{
+          borderRadius: 4,
+          width: x,
+          height: y,
+          backgroundColor: colors.lightGray,
+        }}></View>
+    ) : (
+      children
+    )}
+  </>
 );
 
 const styles = StyleSheet.create({
@@ -53,6 +79,7 @@ const styles = StyleSheet.create({
   },
   textInfo: {
     flex: 1,
+    gap: 2,
   },
   authorName: {
     color: colors.regularText,

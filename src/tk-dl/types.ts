@@ -25,7 +25,8 @@ export interface AwemeData {
 }
 
 export interface ShortenedAwemeData {
-  videoUrl: string;
+  videoUrl?: string;
+  wmVideoUrl?: string;
   authorName?: string;
   thumbnail?: string;
   caption?: string;
